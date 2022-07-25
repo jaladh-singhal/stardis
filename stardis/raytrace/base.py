@@ -84,19 +84,23 @@ def calc_weights(delta_tau):
     -------
     w0 : float
     w1 : float
+    w2 : float
     """
 
     if delta_tau < 5e-4:
         w0 = delta_tau * (1 - delta_tau / 2)
         w1 = delta_tau**2 * (0.5 - delta_tau / 3)
+        w2 = -(delta_tau**4) * 0.5
     elif delta_tau > 50:
         w0 = 1.0
         w1 = 1.0
+        w2 = 2.0
     else:
         exp_delta_tau = np.exp(-delta_tau)
         w0 = 1 - exp_delta_tau
         w1 = w0 - delta_tau * exp_delta_tau
-    return w0, w1
+        w2 = (2 * w1) - ((delta_tau) ** 2 * exp_delta_tau)
+    return w0, w1, w2
 
 
 def raytrace(bb, all_taus, tracing_nus, no_of_shells):
@@ -133,20 +137,51 @@ def raytrace(bb, all_taus, tracing_nus, no_of_shells):
 
         for j in range(no_of_shells):  # iterating over cells/shells (rows)
 
+            # curr_tau = 0
+
+            # for tau in all_taus:
+            #     curr_tau += tau[j, i]
+
+            # w0, w1 = calc_weights(curr_tau)
+
+            # if curr_tau == 0:
+            #     second_term = 0
+            # else:
+            #     second_term = w1 * delta_source[j, i] / curr_tau
+
             curr_tau = 0
+            next_tau = 0
 
             for tau in all_taus:
-                curr_tau += tau[j, i]
+                curr_tau += tau[j, i]  # delta tau 1, 2
+                # since tau is calculated at shell, not shell boundary
+                if j < no_of_shells - 1:
+                    next_tau += tau[j + 1, i]  # delta tau 2, 3
 
-            w0, w1 = calc_weights(curr_tau)
+            w0, w1, w2 = calc_weights(curr_tau)
 
-            if curr_tau == 0:
+            if curr_tau == 0 or next_tau == 0:
                 second_term = 0
+                third_term = 0
             else:
-                second_term = w1 * delta_source[j, i] / curr_tau
+                second_term = (
+                    w1
+                    * (
+                        (delta_source[j + 1, i] * curr_tau / next_tau)
+                        - (delta_source[j, i] * next_tau / curr_tau)
+                    )
+                    / (curr_tau + next_tau)
+                )
+                third_term = w2 * (
+                    (
+                        (-delta_source[j + 1, i] / next_tau)
+                        - (delta_source[j, i] / curr_tau)
+                    )
+                    / (curr_tau + next_tau)
+                )
 
             I_nu[j + 1, i] = (
-                (1 - w0) * I_nu[j, i] + w0 * source[j, i] + second_term
+                (1 - w0) * I_nu[j, i] + w0 * source[j, i] + second_term + third_term
             )  # van Noort 2001 eq 14
 
     return I_nu
